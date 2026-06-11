@@ -169,6 +169,63 @@ qaless review <analysis-id>            # k/r/e/s per node (kept / removed / edit
 
 After feedback is collected, the next `qaless analyze` for the same `cwd` weights kept scenarios as positive few-shot examples and removed scenarios as negative — the same project gets smarter over time.
 
+### LLM-based topology detection (`qaless services detect --llm`)
+
+For repos without a `docker-compose.yml`, the LLM detector reads your source code and infers `qaless.services.yml` directly. Best for: Go / Node / Python / Rust monoliths and microservice repos where routes live in dedicated handler files.
+
+```bash
+qaless services detect --llm --dry-run    # preview YAML on stdout, no write
+qaless services detect --llm              # write qaless.services.yml in cwd
+qaless services detect --llm --force      # overwrite existing
+```
+
+**How it works**
+
+1. Walks `cwd` up to **50 files / 200 KB total / 32 KB per file** (bounded — predictable token cost)
+2. Skips `node_modules`, `vendor`, `.git`, `dist`, `build`, `target`, `.next`, `__pycache__`, `.venv`, etc.
+3. Collects three signal types:
+   - **File tree** — up to 200 paths so the model sees the shape
+   - **Manifests** — `go.mod`, `package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `Gemfile`, `composer.json`, `Dockerfile`, `docker-compose.yml`
+   - **Entry points + router files** — `main.go`, `cmd/*/main.go`, `server.{ts,js}`, `app.py`, `main.py`, `src/main.rs`, **plus** by basename anywhere in the tree: `routes.go`, `router.go`, `handlers.go`, `handler.go`, `routes.ts`, `router.ts`, `routes.js`, `router.js`, `urls.py`, `routes.py`, `router.py`, `routes.rs`, `router.rs`
+4. Sends one prompt to your configured LLM (`QALESS_LLM_PROVIDER`)
+5. Parses the YAML response (strips fences if present), drops services with empty names
+6. Writes `qaless.services.yml` with a provenance header
+
+**Cost**: ~5–30¢ per detection on Sonnet 4.6 (depends on repo size). Same license gate as `qaless analyze`.
+
+**Output format the matcher expects**
+
+QAless's path matcher does prefix matching with `*` wildcards. The detector is instructed to emit:
+
+```yaml
+routes:
+  - "GET /cars/*"                  # NOT /cars/{id}
+  - "POST /api/pictures/*"         # one wildcard route > three leaf paths
+  - "grpc:ResetPassword"
+```
+
+**Common gotchas**
+
+- **`{id}` / `:param` placeholders in routes** — won't match scenario steps with concrete IDs. v0.12.1+ prompts the LLM to emit `*` instead; if you're on an older binary, re-run with v0.12.1 or hand-edit.
+- **Routes registered in unusual files** — the walker covers the 13 most common router/handler basenames. If your routes live in `internal/api/v2/endpoints.go` or similar non-standard names, the LLM may infer empty `routes:` arrays. Hand-edit the YAML after detection.
+- **Hallucinated `calls` edges** — the prompt instructs the LLM to only emit edges defensible from source, but it can still over-reach. Review with `--dry-run` first.
+- **Use compose when you have it** — `docker-compose.yml` is more deterministic than LLM inference. The plain `qaless services detect` (no `--llm`) reads compose and is free. Use `--llm` only when you don't have compose, OR when compose is missing route data.
+
+**Verifying the topology actually drives the call-path frame**
+
+```bash
+# 1. Run an analyze that produces scenarios with HTTP routes in the steps
+qaless analyze --input "Users can update their payment method"
+
+# 2. Drill in
+qaless tui
+# ↑↓ to select a scenario, ↵ to open
+
+# The detail pane should show a "call-path across services" frame
+# above the steps box. If it doesn't, the scenario's first HTTP line
+# isn't matching any service's `routes:` — check qaless.services.yml.
+```
+
 ### Execute scenarios against staging
 
 ```bash
