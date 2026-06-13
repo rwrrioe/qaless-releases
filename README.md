@@ -18,6 +18,18 @@ Feed it a feature description, OpenAPI spec, or git diff — get back a prioriti
 
 ---
 
+## See it in 30 seconds
+
+### `qaless tui` — interactive scenario picker with call-path frame
+
+![qaless tui demo](./assets/demos/tui.gif)
+
+### `qaless mcp` — Model Context Protocol server for Claude Desktop / Cursor / Zed
+
+![qaless mcp demo](./assets/demos/mcp.gif)
+
+---
+
 > **What QAless answers:** not *"how do I test this?"* but *"what can break here?"* — in seconds, grounded in your codebase, prioritized by impact, drill-able to the exact call path across your services.
 
 ```
